@@ -1,15 +1,11 @@
-from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
 import httpx
-from sqlalchemy import insert, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from db.models import SleepSession
 from db.queries import (
     get_health_snapshot,
     get_latest_metric,
@@ -18,15 +14,13 @@ from db.queries import (
 )
 from integrations.ollama_cloud import analyze_sleep, analyze_snapshot
 from integrations.signal_client import send_message
+from agent.state import HealthAgentState
 from agent.tools import (
     classify_intent_keywords,
     format_sleep_report,
     format_snapshot_message,
 )
 from agent.prompts import INTENT_SYSTEM_PROMPT
-
-if TYPE_CHECKING:
-    from agent.graph import HealthAgentState
 
 
 async def parse_intent_node(state: "HealthAgentState") -> "HealthAgentState":

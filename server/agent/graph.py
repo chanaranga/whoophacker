@@ -1,11 +1,7 @@
-from __future__ import annotations
-
-from datetime import datetime
-from typing import Optional, TypedDict
-
 from langgraph.graph import StateGraph, END
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.state import HealthAgentState
 from agent.nodes import (
     parse_intent_node,
     record_sleep_start_node,
@@ -13,14 +9,6 @@ from agent.nodes import (
     query_metrics_node,
     health_snapshot_node,
 )
-
-
-class HealthAgentState(TypedDict):
-    user_phone: str
-    user_message: str
-    intent: str
-    sleep_start: Optional[datetime]
-    db: AsyncSession   # passed through but not serialised
 
 
 def _route(state: HealthAgentState) -> str:
