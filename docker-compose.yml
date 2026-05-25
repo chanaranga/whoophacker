@@ -55,8 +55,7 @@ services:
         condition: service_healthy
       signal-rest:
         condition: service_started
-    volumes:
-      - ./server:/app   # dev: live reload
+    # no volume mount — code is baked into the image at build time
 
 volumes:
   postgres_data:
