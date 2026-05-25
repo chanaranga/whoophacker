@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "WHOOP Collector",
+    "slug": "whoop-collector",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "ios": {
+      "bundleIdentifier": "com.whoophack.collector",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Required to connect to your WHOOP band and read health data.",
+        "NSBluetoothPeripheralUsageDescription": "Required to connect to your WHOOP band.",
+        "UIBackgroundModes": ["bluetooth-central", "fetch", "processing"]
+      }
+    },
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": ["peripheral", "central"],
+          "bluetoothAlwaysPermission": "Allow WHOOP Collector to use Bluetooth"
+        }
+      ]
+    ]
+  }
+}

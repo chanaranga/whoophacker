@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# Environment
+.env
+*.env.local
+
+# Node / Expo
+node_modules/
+iphone/app/.expo/
+iphone/app/android/
+iphone/app/ios/Pods/
+*.tsbuildinfo
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.DS_Store
