@@ -24,6 +24,50 @@ export interface SleepScoreEntry {
   stages: SleepStages | null;
 }
 
+export interface WorkoutEntry {
+  id: number;
+  workout_type: string;
+  start_time: string;
+  end_time: string | null;
+  duration_min: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_hrv: number | null;
+  effort_score: number | null;
+  recovery_cost: number | null;
+}
+
+export interface RecoveryData {
+  recovery_score: number | null;
+  readiness: "high" | "moderate" | "low" | null;
+  factors: string[];
+  recommendation: string;
+}
+
+export async function fetchWorkouts(days = 7): Promise<WorkoutEntry[]> {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/workouts?days=${days}`, {
+      headers: { "X-Server-Secret": SERVER_SECRET },
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchRecovery(): Promise<RecoveryData | null> {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/recovery`, {
+      headers: { "X-Server-Secret": SERVER_SECRET },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchSleepScores(days = 7): Promise<SleepScoreEntry[]> {
   try {
     const res = await fetch(`${SERVER_URL}/api/sleep/scores?days=${days}`, {

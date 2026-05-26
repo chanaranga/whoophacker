@@ -141,6 +141,99 @@ async def get_overnight_data(
     ]
 
 
+async def get_workout_window_stats(
+    db: AsyncSession, start: datetime, end: datetime
+) -> dict:
+    row = await db.execute(
+        text(
+            "SELECT AVG(heart_rate), MAX(heart_rate), AVG(hrv_rmssd), COUNT(*) "
+            "FROM health_metrics WHERE time BETWEEN :start AND :end"
+        ),
+        {"start": start, "end": end},
+    )
+    result = row.fetchone()
+    if not result or result[3] == 0:
+        return {}
+    return {
+        "avg_hr": round(result[0], 0) if result[0] else None,
+        "max_hr": round(result[1], 0) if result[1] else None,
+        "avg_hrv": round(result[2], 1) if result[2] else None,
+        "sample_count": result[3],
+    }
+
+
+async def get_recovery_inputs(db: AsyncSession) -> dict:
+    """Gather all inputs needed to compute a recovery score."""
+    # Last sleep session
+    sleep_row = await db.execute(
+        text(
+            "SELECT sleep_score, avg_hrv, duration_min FROM sleep_sessions "
+            "WHERE end_time IS NOT NULL ORDER BY start_time DESC LIMIT 1"
+        )
+    )
+    last_sleep = sleep_row.fetchone()
+
+    # Current HRV and trend
+    hrv_now = await get_latest_metric(db, "hrv_rmssd")
+    hrv_7d = await get_7d_avg(db, "hrv_rmssd")
+    hr_now = await get_latest_metric(db, "heart_rate")
+    hr_7d = await get_7d_avg(db, "heart_rate")
+
+    # Cumulative workout recovery cost from last 48h
+    workout_row = await db.execute(
+        text(
+            "SELECT COALESCE(SUM(recovery_cost), 0), COUNT(*) "
+            "FROM workout_sessions "
+            "WHERE end_time IS NOT NULL AND start_time > NOW() - INTERVAL '48 hours'"
+        )
+    )
+    workout_load = workout_row.fetchone()
+
+    return {
+        "last_sleep_score": last_sleep[0] if last_sleep else None,
+        "last_sleep_hrv": last_sleep[1] if last_sleep else None,
+        "last_sleep_duration_min": last_sleep[2] if last_sleep else None,
+        "hrv_now": hrv_now,
+        "hrv_7d_avg": hrv_7d,
+        "hr_now": int(hr_now) if hr_now else None,
+        "hr_7d_avg": hr_7d,
+        "workout_load_48h": int(workout_load[0]) if workout_load else 0,
+        "workouts_48h": int(workout_load[1]) if workout_load else 0,
+    }
+
+
+async def get_recent_workouts(db: AsyncSession, days: int = 7) -> list[dict]:
+    rows = await db.execute(
+        text(
+            """
+            SELECT id, workout_type, start_time, end_time, duration_min,
+                   avg_hr, max_hr, avg_hrv, effort_score, recovery_cost
+            FROM workout_sessions
+            WHERE end_time IS NOT NULL
+              AND start_time > NOW() - (:days * INTERVAL '1 day')
+            ORDER BY start_time DESC
+            LIMIT :days
+            """
+        ),
+        {"days": days},
+    )
+    return [
+        {
+            "id": r[0],
+            "workout_type": r[1],
+            "start_time": r[2].isoformat() if r[2] else None,
+            "end_time": r[3].isoformat() if r[3] else None,
+            "duration_min": r[4],
+            "avg_hr": r[5],
+            "max_hr": r[6],
+            "avg_hrv": r[7],
+            "effort_score": r[8],
+            "recovery_cost": r[9],
+        }
+        for r in rows.fetchall()
+    ]
+
+
 async def get_health_snapshot(db: AsyncSession) -> HealthSnapshot:
     hr_now = await get_latest_metric(db, "heart_rate")
     hr_24h = await get_24h_avg(db, "heart_rate")

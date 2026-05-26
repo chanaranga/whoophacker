@@ -15,6 +15,7 @@ from db.session import AsyncSessionLocal
 from routers.metrics import router as metrics_router
 from routers.signal_webhook import router as signal_router
 from routers.sleep import router as sleep_router
+from routers.workouts import router as workouts_router
 
 logger = logging.getLogger("signal_listener")
 
@@ -71,11 +72,24 @@ async def _auto_sleep_loop():
 async def _run_migrations():
     async with AsyncSessionLocal() as db:
         await db.execute(
-            sa_text(
-                "ALTER TABLE sleep_sessions "
-                "ADD COLUMN IF NOT EXISTS stage_breakdown TEXT"
-            )
+            sa_text("ALTER TABLE sleep_sessions ADD COLUMN IF NOT EXISTS stage_breakdown TEXT")
         )
+        await db.execute(sa_text("""
+            CREATE TABLE IF NOT EXISTS workout_sessions (
+                id            SERIAL PRIMARY KEY,
+                workout_type  TEXT NOT NULL,
+                start_time    TIMESTAMPTZ NOT NULL,
+                end_time      TIMESTAMPTZ,
+                duration_min  INTEGER,
+                avg_hr        INTEGER,
+                max_hr        INTEGER,
+                avg_hrv       FLOAT,
+                effort_score  INTEGER,
+                recovery_cost INTEGER,
+                analysis_text TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
         await db.commit()
 
 
@@ -101,6 +115,7 @@ app.add_middleware(
 app.include_router(metrics_router)
 app.include_router(signal_router)
 app.include_router(sleep_router)
+app.include_router(workouts_router)
 
 
 @app.get("/health")

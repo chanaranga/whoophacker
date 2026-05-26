@@ -9,4 +9,5 @@ class HealthAgentState(TypedDict):
     user_message: str
     intent: str
     sleep_start: Optional[datetime]
+    workout_type: Optional[str]
     db: AsyncSession

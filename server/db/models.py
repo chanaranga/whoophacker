@@ -7,6 +7,23 @@ class Base(DeclarativeBase):
     pass
 
 
+class WorkoutSession(Base):
+    __tablename__ = "workout_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workout_type = Column(Text, nullable=False)
+    start_time = Column(TIMESTAMP(timezone=True), nullable=False)
+    end_time = Column(TIMESTAMP(timezone=True))
+    duration_min = Column(Integer)
+    avg_hr = Column(Integer)
+    max_hr = Column(Integer)
+    avg_hrv = Column(Float)
+    effort_score = Column(Integer)
+    recovery_cost = Column(Integer)
+    analysis_text = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), default=func.now())
+
+
 class HealthMetric(Base):
     __tablename__ = "health_metrics"
 

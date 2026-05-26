@@ -11,6 +11,21 @@ CREATE TABLE IF NOT EXISTS health_metrics (
 
 SELECT create_hypertable('health_metrics', 'time', if_not_exists => TRUE);
 
+CREATE TABLE IF NOT EXISTS workout_sessions (
+    id             SERIAL PRIMARY KEY,
+    workout_type   TEXT NOT NULL,
+    start_time     TIMESTAMPTZ NOT NULL,
+    end_time       TIMESTAMPTZ,
+    duration_min   INTEGER,
+    avg_hr         INTEGER,
+    max_hr         INTEGER,
+    avg_hrv        FLOAT,
+    effort_score   INTEGER,
+    recovery_cost  INTEGER,
+    analysis_text  TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS sleep_sessions (
     id             SERIAL PRIMARY KEY,
     start_time     TIMESTAMPTZ NOT NULL,

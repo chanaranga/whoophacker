@@ -81,15 +81,53 @@ async def analyze_sleep(
     timeseries: list[dict] | None = None,
 ) -> dict[str, Any]:
     payload = _format_sleep_payload(stats, start, end, timeseries)
-    async with httpx.AsyncClient(timeout=90) as client:
+    return await _call_llm(SLEEP_SYSTEM_PROMPT, payload)
+
+
+WORKOUT_SYSTEM_PROMPT = """You are a personal fitness analyst. Analyse the provided workout data and return ONLY a JSON object with these exact keys:
+
+- effort_score: integer 0-100
+- recovery_cost: integer 0-100 (20=easy walk, 50=moderate cardio, 80=hard HIIT or heavy lifting)
+- zone_easy_pct: integer (% HR < 120 bpm)
+- zone_moderate_pct: integer (% HR 120-140 bpm)
+- zone_hard_pct: integer (% HR 140-160 bpm)
+- zone_intense_pct: integer (% HR > 160 bpm; all zone_* sum to ~100)
+- hrv_response: string (1 sentence on HRV during workout)
+- summary: string (2-3 sentences on workout quality)
+- recommendations: array of 2 short recovery/follow-up strings
+
+Return only valid JSON, no markdown."""
+
+RECOVERY_SYSTEM_PROMPT = """You are a personal health coach. Given recovery indicators, return ONLY a JSON object:
+
+- recovery_score: integer 0-100
+- readiness: exactly one of "high", "moderate", "low"
+- factors: array of 3-4 short strings explaining the score
+- recommendation: string (1-2 sentences on appropriate activity today)
+
+Weights: sleep quality 35%, HRV vs baseline 30%, recent workout load 25%, resting HR trend 10%.
+>=75 = ready for hard training; 50-74 = moderate; <50 = rest or light only.
+Return only valid JSON, no markdown."""
+
+WORKOUT_ADVICE_SYSTEM_PROMPT = """You are a personal health coach. Given recovery data and a requested workout type, return ONLY a JSON object:
+
+- recommendation: exactly one of "yes", "caution", "no"
+- rationale: string (2-3 sentences referencing specific recovery metrics)
+- alternative: string (if caution/no: suggest alternative; if yes: how to maximise the session)
+
+Return only valid JSON, no markdown."""
+
+
+async def _call_llm(system: str, user: str, model: str | None = None, timeout: int = 90) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(
             f"{settings.ollama_cloud_base}/api/chat",
             headers={"Authorization": f"Bearer {settings.ollama_cloud_api_key}"},
             json={
-                "model": settings.ollama_model,
+                "model": model or settings.ollama_model,
                 "messages": [
-                    {"role": "system", "content": SLEEP_SYSTEM_PROMPT},
-                    {"role": "user", "content": payload},
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
                 ],
                 "format": "json",
                 "stream": False,
@@ -100,7 +138,34 @@ async def analyze_sleep(
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        return {"summary": raw, "sleep_score": None, "recommendations": []}
+        return {"raw": raw}
+
+
+async def analyze_workout(
+    stats: dict, workout_type: str, start: datetime, end: datetime,
+    timeseries: list[dict] | None = None,
+) -> dict[str, Any]:
+    duration_min = int((end - start).total_seconds() / 60)
+    payload: dict = {
+        "workout_type": workout_type,
+        "duration_minutes": duration_min,
+        "avg_heart_rate_bpm": stats.get("avg_hr"),
+        "max_heart_rate_bpm": stats.get("max_hr"),
+        "avg_hrv_rmssd_ms": stats.get("avg_hrv"),
+        "data_samples": stats.get("sample_count", 0),
+    }
+    if timeseries:
+        payload["timeseries_5min"] = [[p["min"], p["hr"], p["hrv"]] for p in timeseries]
+    return await _call_llm(WORKOUT_SYSTEM_PROMPT, json.dumps(payload))
+
+
+async def analyze_recovery(inputs: dict) -> dict[str, Any]:
+    return await _call_llm(RECOVERY_SYSTEM_PROMPT, json.dumps(inputs), timeout=60)
+
+
+async def advise_workout(recovery: dict, workout_type: str) -> dict[str, Any]:
+    payload = {**recovery, "requested_workout": workout_type}
+    return await _call_llm(WORKOUT_ADVICE_SYSTEM_PROMPT, json.dumps(payload), timeout=60)
 
 
 async def analyze_snapshot(snap: HealthSnapshot) -> str:
@@ -120,3 +185,4 @@ async def analyze_snapshot(snap: HealthSnapshot) -> str:
         )
     r.raise_for_status()
     return r.json()["message"]["content"].strip()
+

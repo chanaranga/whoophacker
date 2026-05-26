@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
 import { connectToWhoop, getCurrentRmssd, disconnectWhoop, HealthReading } from "./BleManager";
-import { syncReadings, fetchSleepScores, SleepScoreEntry } from "./ServerSync";
+import { syncReadings, fetchSleepScores, fetchWorkouts, fetchRecovery, SleepScoreEntry, WorkoutEntry, RecoveryData } from "./ServerSync";
 import { registerBackgroundSync, addReading } from "./BackgroundTask";
 import { getHourlyPoints, getUnsynced, markSynced, HourlyPoint } from "./DataStore";
 
@@ -41,6 +41,8 @@ export default function App() {
   const [lastReading, setLastReading] = useState<HealthReading | null>(null);
   const [hourlyPoints, setHourlyPoints] = useState<HourlyPoint[]>([]);
   const [sleepScores, setSleepScores] = useState<SleepScoreEntry[]>([]);
+  const [workouts, setWorkouts] = useState<WorkoutEntry[]>([]);
+  const [recovery, setRecovery] = useState<RecoveryData | null>(null);
 
   const lastReadingRef = useRef<HealthReading | null>(null);
   const syncInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -48,12 +50,16 @@ export default function App() {
   const readingBuffer = useRef<HealthReading[]>([]);
 
   const refreshCharts = useCallback(async () => {
-    const [pts, scores] = await Promise.all([
+    const [pts, scores, wkts, rec] = await Promise.all([
       getHourlyPoints(24),
       fetchSleepScores(7),
+      fetchWorkouts(7),
+      fetchRecovery(),
     ]);
     setHourlyPoints(pts);
     setSleepScores(scores);
+    setWorkouts(wkts);
+    setRecovery(rec);
   }, []);
 
   useEffect(() => {
@@ -144,6 +150,22 @@ export default function App() {
       <Text style={styles.title}>WHOOP Collector</Text>
       <Text style={styles.statusText}>{status}</Text>
 
+      {/* Recovery widget */}
+      {recovery?.recovery_score != null && (
+        <View style={[styles.recoveryCard, { borderLeftColor: scoreColor(recovery.recovery_score) }]}>
+          <View style={styles.recoveryRow}>
+            <Text style={styles.recoveryLabel}>Recovery</Text>
+            <Text style={[styles.recoveryScore, { color: scoreColor(recovery.recovery_score) }]}>
+              {recovery.recovery_score}
+            </Text>
+            <Text style={styles.recoveryReadiness}>{recovery.readiness?.toUpperCase()}</Text>
+          </View>
+          {recovery.recommendation ? (
+            <Text style={styles.recoveryRec}>{recovery.recommendation}</Text>
+          ) : null}
+        </View>
+      )}
+
       {/* Current values */}
       {lastReading && (
         <View style={styles.card}>
@@ -212,6 +234,18 @@ export default function App() {
         </View>
       )}
 
+      {/* Recent workouts */}
+      <Text style={styles.chartTitle}>Recent Workouts</Text>
+      {workouts.length === 0 ? (
+        <View style={[styles.chart, styles.placeholder]}>
+          <Text style={styles.placeholderText}>No workouts yet — tell the agent when you start one</Text>
+        </View>
+      ) : (
+        <View style={styles.sleepList}>
+          {workouts.map((w) => <WorkoutRow key={w.id} entry={w} />)}
+        </View>
+      )}
+
       {/* Recent sleep scores */}
       <Text style={styles.chartTitle}>Recent Sleep</Text>
       {sleepScores.length === 0 ? (
@@ -242,6 +276,36 @@ function scoreColor(score: number | null): string {
   if (score >= 80) return "#16a34a";
   if (score >= 60) return "#d97706";
   return "#dc2626";
+}
+
+function WorkoutRow({ entry }: { entry: WorkoutEntry }) {
+  const date = new Date(entry.start_time);
+  const label = date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const h = entry.duration_min ? Math.floor(entry.duration_min / 60) : null;
+  const m = entry.duration_min ? entry.duration_min % 60 : null;
+  const dur = h != null ? (h > 0 ? `${h}h ${m}m` : `${m}m`) : "—";
+  const effortColor = scoreColor(entry.effort_score);
+
+  return (
+    <View style={styles.sleepRow}>
+      <View style={styles.sleepRowTop}>
+        <Text style={styles.sleepDate}>{entry.workout_type.charAt(0).toUpperCase() + entry.workout_type.slice(1)}  {label}</Text>
+        <View style={styles.sleepRight}>
+          {entry.effort_score != null && (
+            <Text style={[styles.sleepScore, { color: effortColor }]}>{entry.effort_score}</Text>
+          )}
+          <Text style={styles.sleepDur}>{dur}</Text>
+        </View>
+      </View>
+      {(entry.avg_hr != null || entry.max_hr != null) && (
+        <Text style={styles.sleepStages}>
+          {entry.avg_hr != null ? `Avg HR ${entry.avg_hr} bpm` : ""}
+          {entry.max_hr != null ? `  Peak ${entry.max_hr} bpm` : ""}
+          {entry.recovery_cost != null ? `  Cost ${entry.recovery_cost}/100` : ""}
+        </Text>
+      )}
+    </View>
+  );
 }
 
 function SleepRow({ entry }: { entry: SleepScoreEntry }) {
@@ -319,6 +383,19 @@ const styles = StyleSheet.create({
   },
   placeholderText: { color: "#bbb", fontSize: 13 },
   buttonRow: { marginTop: 8 },
+  recoveryCard: {
+    width: "100%",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    padding: 12,
+    marginBottom: 16,
+  },
+  recoveryRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  recoveryLabel: { fontSize: 13, color: "#666", flex: 1 },
+  recoveryScore: { fontSize: 26, fontWeight: "700" },
+  recoveryReadiness: { fontSize: 11, fontWeight: "600", color: "#888" },
+  recoveryRec: { fontSize: 12, color: "#555", marginTop: 6 },
   sleepList: { width: "100%", marginBottom: 20 },
   sleepRow: {
     backgroundColor: "#f5f5f5",

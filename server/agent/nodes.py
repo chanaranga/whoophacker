@@ -17,13 +17,22 @@ from db.queries import (
     get_sleep_window_timeseries,
     get_overnight_data,
     has_recent_sleep_session,
+    get_workout_window_stats,
+    get_recovery_inputs,
 )
-from integrations.ollama_cloud import analyze_sleep, analyze_snapshot
+from integrations.ollama_cloud import (
+    analyze_sleep, analyze_snapshot, analyze_workout,
+    analyze_recovery, advise_workout,
+)
 from integrations.signal_client import send_message
 from agent.state import HealthAgentState
 from agent.tools import (
     classify_intent_keywords,
+    extract_workout_type,
     format_sleep_report,
+    format_workout_report,
+    format_recovery_message,
+    format_advice_message,
     format_snapshot_message,
 )
 from agent.prompts import INTENT_SYSTEM_PROMPT
@@ -154,6 +163,85 @@ async def health_snapshot_node(state: "HealthAgentState") -> "HealthAgentState":
     snap = await get_health_snapshot(db)
     narrative = await analyze_snapshot(snap)
     msg = format_snapshot_message(snap, narrative)
+    await send_message(state["user_phone"], msg)
+    return state
+
+
+async def workout_start_node(state: "HealthAgentState") -> "HealthAgentState":
+    db: AsyncSession = state["db"]
+    workout_type = state.get("workout_type") or extract_workout_type(state["user_message"])
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        text("INSERT INTO workout_sessions (workout_type, start_time) VALUES (:t, :s)"),
+        {"t": workout_type, "s": now},
+    )
+    await db.commit()
+    await send_message(state["user_phone"], f"{workout_type.title()} session started. Good luck!")
+    return state
+
+
+async def workout_end_node(state: "HealthAgentState") -> "HealthAgentState":
+    db: AsyncSession = state["db"]
+    end = datetime.now(timezone.utc)
+
+    row = await db.execute(
+        text(
+            "SELECT id, workout_type, start_time FROM workout_sessions "
+            "WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1"
+        )
+    )
+    session = row.fetchone()
+    if not session:
+        await send_message(state["user_phone"], "No active workout session found. Did you forget to say you were starting one?")
+        return state
+
+    session_id, workout_type, start = session
+    duration_min = int((end - start).total_seconds() / 60)
+
+    stats = await get_workout_window_stats(db, start, end)
+    timeseries = await get_sleep_window_timeseries(db, start, end)
+
+    analysis = await analyze_workout(stats, workout_type, start, end, timeseries)
+
+    await db.execute(
+        text(
+            "UPDATE workout_sessions SET end_time=:end, duration_min=:dur, "
+            "avg_hr=:hr, max_hr=:maxhr, avg_hrv=:hrv, effort_score=:effort, "
+            "recovery_cost=:cost, analysis_text=:text WHERE id=:id"
+        ),
+        {
+            "end": end, "dur": duration_min,
+            "hr": stats.get("avg_hr"), "maxhr": stats.get("max_hr"),
+            "hrv": stats.get("avg_hrv"),
+            "effort": analysis.get("effort_score"),
+            "cost": analysis.get("recovery_cost"),
+            "text": json.dumps(analysis),
+            "id": session_id,
+        },
+    )
+    await db.commit()
+
+    report = format_workout_report(analysis, workout_type, duration_min)
+    await send_message(state["user_phone"], report)
+    return state
+
+
+async def recovery_node(state: "HealthAgentState") -> "HealthAgentState":
+    db: AsyncSession = state["db"]
+    inputs = await get_recovery_inputs(db)
+    recovery = await analyze_recovery(inputs)
+    msg = format_recovery_message(recovery)
+    await send_message(state["user_phone"], msg)
+    return state
+
+
+async def workout_advice_node(state: "HealthAgentState") -> "HealthAgentState":
+    db: AsyncSession = state["db"]
+    workout_type = extract_workout_type(state["user_message"])
+    inputs = await get_recovery_inputs(db)
+    recovery = await analyze_recovery(inputs)
+    advice = await advise_workout(recovery, workout_type)
+    msg = format_advice_message(advice, workout_type)
     await send_message(state["user_phone"], msg)
     return state
 
