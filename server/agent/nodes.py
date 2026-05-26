@@ -11,6 +11,7 @@ from db.queries import (
     get_latest_metric,
     get_24h_avg,
     get_sleep_window_stats,
+    get_sleep_window_timeseries,
 )
 from integrations.ollama_cloud import analyze_sleep, analyze_snapshot
 from integrations.signal_client import send_message
@@ -85,15 +86,21 @@ async def run_sleep_analysis_node(state: "HealthAgentState") -> "HealthAgentStat
         await send_message(state["user_phone"], f"Woke up after {duration_min}m but no health data was recorded. Make sure the Expo app was running.")
         return state
 
-    analysis = await analyze_sleep(stats, start, end)
+    timeseries = await get_sleep_window_timeseries(db, start, end)
+    analysis = await analyze_sleep(stats, start, end, timeseries)
     score = analysis.get("sleep_score")
+
+    stage_breakdown = {
+        k: analysis.get(k)
+        for k in ("deep_pct", "deep_min", "rem_pct", "rem_min", "light_pct", "light_min")
+    }
 
     # Persist the completed session
     await db.execute(
         text(
             "UPDATE sleep_sessions SET end_time=:end, duration_min=:dur, "
             "avg_hrv=:hrv, avg_hr=:hr, min_spo2=:spo2, sleep_score=:score, "
-            "analysis_text=:text WHERE id=:id"
+            "analysis_text=:text, stage_breakdown=:stages WHERE id=:id"
         ),
         {
             "end": end,
@@ -103,6 +110,7 @@ async def run_sleep_analysis_node(state: "HealthAgentState") -> "HealthAgentStat
             "spo2": stats.get("min_spo2"),
             "score": score,
             "text": json.dumps(analysis),
+            "stages": json.dumps(stage_breakdown),
             "id": session_id,
         },
     )

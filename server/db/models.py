@@ -30,4 +30,5 @@ class SleepSession(Base):
     min_spo2 = Column(Float)
     sleep_score = Column(Integer)
     analysis_text = Column(Text)
+    stage_breakdown = Column(Text)
     created_at = Column(TIMESTAMP(timezone=True), default=func.now())

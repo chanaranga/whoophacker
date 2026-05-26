@@ -7,6 +7,8 @@ import websockets
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from sqlalchemy import text as sa_text
+
 from config import settings
 from db.session import AsyncSessionLocal
 from routers.metrics import router as metrics_router
@@ -44,8 +46,20 @@ async def _signal_listener():
             await asyncio.sleep(5)
 
 
+async def _run_migrations():
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            sa_text(
+                "ALTER TABLE sleep_sessions "
+                "ADD COLUMN IF NOT EXISTS stage_breakdown TEXT"
+            )
+        )
+        await db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _run_migrations()
     task = asyncio.create_task(_signal_listener())
     yield
     task.cancel()

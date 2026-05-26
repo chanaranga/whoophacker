@@ -21,5 +21,6 @@ CREATE TABLE IF NOT EXISTS sleep_sessions (
     min_spo2       FLOAT,
     sleep_score    INTEGER,
     analysis_text  TEXT,
+    stage_breakdown TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -41,7 +41,8 @@ async def get_sleep_window_stats(
 ) -> dict:
     row = await db.execute(
         text(
-            "SELECT AVG(heart_rate), AVG(hrv_rmssd), MIN(spo2), COUNT(*) "
+            "SELECT AVG(heart_rate), AVG(hrv_rmssd), MIN(spo2), COUNT(*), "
+            "MIN(heart_rate), MAX(heart_rate) "
             "FROM health_metrics WHERE time BETWEEN :start AND :end"
         ),
         {"start": start, "end": end},
@@ -54,7 +55,43 @@ async def get_sleep_window_stats(
         "avg_hrv": round(result[1], 1) if result[1] else None,
         "min_spo2": round(result[2], 1) if result[2] else None,
         "sample_count": result[3],
+        "min_hr": round(result[4], 0) if result[4] else None,
+        "max_hr": round(result[5], 0) if result[5] else None,
     }
+
+
+async def get_sleep_window_timeseries(
+    db: AsyncSession, start: datetime, end: datetime, bucket_minutes: int = 5
+) -> list[dict]:
+    """Return HR + HRV averaged in N-minute buckets over the sleep window."""
+    rows = await db.execute(
+        text(
+            """
+            SELECT
+                time_bucket(:bucket, time) AS bucket,
+                ROUND(AVG(heart_rate)) AS hr,
+                ROUND(AVG(hrv_rmssd)::numeric, 1) AS hrv
+            FROM health_metrics
+            WHERE time BETWEEN :start AND :end
+              AND (heart_rate IS NOT NULL OR hrv_rmssd IS NOT NULL)
+            GROUP BY bucket
+            ORDER BY bucket
+            """
+        ),
+        {"bucket": f"{bucket_minutes} minutes", "start": start, "end": end},
+    )
+    results = rows.fetchall()
+    if not results:
+        return []
+    base = results[0][0]
+    return [
+        {
+            "min": int((row[0] - base).total_seconds() / 60),
+            "hr": int(row[1]) if row[1] is not None else None,
+            "hrv": float(row[2]) if row[2] is not None else None,
+        }
+        for row in results
+    ]
 
 
 async def get_health_snapshot(db: AsyncSession) -> HealthSnapshot:

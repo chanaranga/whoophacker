@@ -25,6 +25,16 @@ def classify_intent_keywords(message: str) -> str | None:
     return None
 
 
+def _fmt_stage(pct: int | None, minutes: int | None) -> str:
+    if pct is None:
+        return "n/a"
+    if minutes is None:
+        return f"{pct}%"
+    h, m = divmod(minutes, 60)
+    t = f"{h}h {m}m" if h else f"{m}m"
+    return f"{pct}%  ({t})"
+
+
 def format_sleep_report(analysis: dict, stats: dict, duration_min: int) -> str:
     h, m = divmod(duration_min, 60)
     score = analysis.get("sleep_score")
@@ -33,17 +43,36 @@ def format_sleep_report(analysis: dict, stats: dict, duration_min: int) -> str:
     spo2 = analysis.get("spo2_notes", "")
     recs = analysis.get("recommendations", [])
 
+    deep_pct = analysis.get("deep_pct")
+    deep_min = analysis.get("deep_min")
+    rem_pct = analysis.get("rem_pct")
+    rem_min = analysis.get("rem_min")
+    light_pct = analysis.get("light_pct")
+    light_min = analysis.get("light_min")
+
     lines = [
         f"Sleep Report — {h}h {m}m",
         f"Score: {score}/100" if score else "Score: n/a",
-        "",
-        summary,
-        "",
-        f"HRV: {hrv}",
-        f"SpO2: {spo2}",
     ]
+
+    if any(v is not None for v in (deep_pct, rem_pct, light_pct)):
+        lines += [
+            "",
+            f"Deep:   {_fmt_stage(deep_pct, deep_min)}",
+            f"REM:    {_fmt_stage(rem_pct, rem_min)}",
+            f"Light:  {_fmt_stage(light_pct, light_min)}",
+            "(estimated from HR/HRV)",
+        ]
+
+    lines += ["", summary]
+
+    if hrv:
+        lines += ["", hrv]
+    if spo2:
+        lines.append(spo2)
     if recs:
         lines += ["", "Tips:"] + [f"  • {r}" for r in recs]
+
     return "\n".join(lines)
 
 
