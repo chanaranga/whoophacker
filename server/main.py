@@ -13,6 +13,7 @@ from config import settings
 from db.session import AsyncSessionLocal
 from routers.metrics import router as metrics_router
 from routers.signal_webhook import router as signal_router
+from routers.sleep import router as sleep_router
 
 logger = logging.getLogger("signal_listener")
 
@@ -76,6 +77,7 @@ app.add_middleware(
 
 app.include_router(metrics_router)
 app.include_router(signal_router)
+app.include_router(sleep_router)
 
 
 @app.get("/health")

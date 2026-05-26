@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
 import { connectToWhoop, getCurrentRmssd, disconnectWhoop, HealthReading } from "./BleManager";
-import { syncReadings } from "./ServerSync";
+import { syncReadings, fetchSleepScores, SleepScoreEntry } from "./ServerSync";
 import { registerBackgroundSync, addReading } from "./BackgroundTask";
 import { getHourlyPoints, getUnsynced, markSynced, HourlyPoint } from "./DataStore";
 
@@ -35,6 +35,7 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [lastReading, setLastReading] = useState<HealthReading | null>(null);
   const [hourlyPoints, setHourlyPoints] = useState<HourlyPoint[]>([]);
+  const [sleepScores, setSleepScores] = useState<SleepScoreEntry[]>([]);
 
   const lastReadingRef = useRef<HealthReading | null>(null);
   const syncInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -42,8 +43,12 @@ export default function App() {
   const readingBuffer = useRef<HealthReading[]>([]);
 
   const refreshCharts = useCallback(async () => {
-    const pts = await getHourlyPoints(24);
+    const [pts, scores] = await Promise.all([
+      getHourlyPoints(24),
+      fetchSleepScores(7),
+    ]);
     setHourlyPoints(pts);
+    setSleepScores(scores);
   }, []);
 
   useEffect(() => {
@@ -181,6 +186,20 @@ export default function App() {
         </View>
       )}
 
+      {/* Recent sleep scores */}
+      <Text style={styles.chartTitle}>Recent Sleep</Text>
+      {sleepScores.length === 0 ? (
+        <View style={[styles.chart, styles.placeholder]}>
+          <Text style={styles.placeholderText}>No sleep sessions yet</Text>
+        </View>
+      ) : (
+        <View style={styles.sleepList}>
+          {sleepScores.map((s) => (
+            <SleepRow key={s.id} entry={s} />
+          ))}
+        </View>
+      )}
+
       <View style={styles.buttonRow}>
         {!connected ? (
           <Button title="Connect to WHOOP" onPress={handleConnect} />
@@ -189,6 +208,50 @@ export default function App() {
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function scoreColor(score: number | null): string {
+  if (score == null) return "#9ca3af";
+  if (score >= 80) return "#16a34a";
+  if (score >= 60) return "#d97706";
+  return "#dc2626";
+}
+
+function SleepRow({ entry }: { entry: SleepScoreEntry }) {
+  const date = new Date(entry.start_time);
+  const label = date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const h = entry.duration_min ? Math.floor(entry.duration_min / 60) : null;
+  const m = entry.duration_min ? entry.duration_min % 60 : null;
+  const dur = h != null ? `${h}h ${m}m` : "—";
+  const color = scoreColor(entry.sleep_score);
+  const s = entry.stages;
+
+  return (
+    <View style={styles.sleepRow}>
+      <View style={styles.sleepRowTop}>
+        <Text style={styles.sleepDate}>{label}</Text>
+        <View style={styles.sleepRight}>
+          {entry.sleep_score != null && (
+            <Text style={[styles.sleepScore, { color }]}>{entry.sleep_score}</Text>
+          )}
+          {entry.sleep_score == null && (
+            <Text style={[styles.sleepScore, { color }]}>—</Text>
+          )}
+          <Text style={styles.sleepDur}>{dur}</Text>
+          {entry.avg_hrv != null && (
+            <Text style={styles.sleepHrv}>HRV {entry.avg_hrv.toFixed(0)}ms</Text>
+          )}
+        </View>
+      </View>
+      {s && (s.deep_pct != null || s.rem_pct != null) && (
+        <Text style={styles.sleepStages}>
+          {s.deep_pct != null ? `Deep ${s.deep_pct}%` : ""}
+          {s.rem_pct != null ? `  REM ${s.rem_pct}%` : ""}
+          {s.light_pct != null ? `  Light ${s.light_pct}%` : ""}
+        </Text>
+      )}
+    </View>
   );
 }
 
@@ -230,4 +293,18 @@ const styles = StyleSheet.create({
   },
   placeholderText: { color: "#bbb", fontSize: 13 },
   buttonRow: { marginTop: 8 },
+  sleepList: { width: "100%", marginBottom: 20 },
+  sleepRow: {
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  sleepRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  sleepDate: { fontSize: 13, fontWeight: "600", color: "#333" },
+  sleepRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  sleepScore: { fontSize: 18, fontWeight: "700" },
+  sleepDur: { fontSize: 12, color: "#666" },
+  sleepHrv: { fontSize: 12, color: "#2563eb" },
+  sleepStages: { fontSize: 11, color: "#888", marginTop: 4 },
 });
