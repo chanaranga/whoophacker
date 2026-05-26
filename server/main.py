@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 
 import websockets
 from fastapi import FastAPI
@@ -47,6 +48,26 @@ async def _signal_listener():
             await asyncio.sleep(5)
 
 
+async def _auto_sleep_loop():
+    """Wait until the configured UTC hour each day, then run auto sleep analysis."""
+    from agent.nodes import auto_sleep_analysis
+    while True:
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(
+            hour=settings.auto_sleep_check_utc_hour, minute=0, second=0, microsecond=0
+        )
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        wait_sec = (next_run - now).total_seconds()
+        logger.info("Auto sleep check scheduled in %.0f minutes.", wait_sec / 60)
+        await asyncio.sleep(wait_sec)
+        try:
+            async with AsyncSessionLocal() as db:
+                await auto_sleep_analysis(db, settings.signal_user_number)
+        except Exception:
+            logger.exception("Auto sleep analysis failed.")
+
+
 async def _run_migrations():
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -61,9 +82,11 @@ async def _run_migrations():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _run_migrations()
-    task = asyncio.create_task(_signal_listener())
+    signal_task = asyncio.create_task(_signal_listener())
+    sleep_task = asyncio.create_task(_auto_sleep_loop())
     yield
-    task.cancel()
+    signal_task.cancel()
+    sleep_task.cancel()
 
 
 app = FastAPI(title="WHOOP Health Agent", version="1.0.0", lifespan=lifespan)

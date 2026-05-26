@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,6 +86,53 @@ async def get_sleep_window_timeseries(
     base = results[0][0]
     return [
         {
+            "min": int((row[0] - base).total_seconds() / 60),
+            "hr": int(row[1]) if row[1] is not None else None,
+            "hrv": float(row[2]) if row[2] is not None else None,
+        }
+        for row in results
+    ]
+
+
+async def has_recent_sleep_session(db: AsyncSession) -> bool:
+    """True if a completed or open sleep session already exists in the last 18 hours."""
+    row = await db.execute(
+        text(
+            "SELECT id FROM sleep_sessions "
+            "WHERE start_time > NOW() - INTERVAL '18 hours' "
+            "ORDER BY start_time DESC LIMIT 1"
+        )
+    )
+    return row.fetchone() is not None
+
+
+async def get_overnight_data(
+    db: AsyncSession, start: datetime, end: datetime, bucket_minutes: int = 5
+) -> list[dict]:
+    """5-minute bucketed HR + HRV with actual bucket timestamps for sleep inference."""
+    rows = await db.execute(
+        text(
+            """
+            SELECT
+                time_bucket(:bucket, time) AS bucket,
+                ROUND(AVG(heart_rate)) AS hr,
+                ROUND(AVG(hrv_rmssd)::numeric, 1) AS hrv
+            FROM health_metrics
+            WHERE time BETWEEN :start AND :end
+              AND heart_rate IS NOT NULL
+            GROUP BY bucket
+            ORDER BY bucket
+            """
+        ),
+        {"bucket": f"{bucket_minutes} minutes", "start": start, "end": end},
+    )
+    results = rows.fetchall()
+    if not results:
+        return []
+    base = results[0][0]
+    return [
+        {
+            "time": row[0],
             "min": int((row[0] - base).total_seconds() / 60),
             "hr": int(row[1]) if row[1] is not None else None,
             "hrv": float(row[2]) if row[2] is not None else None,

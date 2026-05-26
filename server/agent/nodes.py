@@ -1,7 +1,10 @@
 import json
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timezone, timedelta
 
 import httpx
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +15,8 @@ from db.queries import (
     get_24h_avg,
     get_sleep_window_stats,
     get_sleep_window_timeseries,
+    get_overnight_data,
+    has_recent_sleep_session,
 )
 from integrations.ollama_cloud import analyze_sleep, analyze_snapshot
 from integrations.signal_client import send_message
@@ -151,3 +156,110 @@ async def health_snapshot_node(state: "HealthAgentState") -> "HealthAgentState":
     msg = format_snapshot_message(snap, narrative)
     await send_message(state["user_phone"], msg)
     return state
+
+
+def _infer_sleep_window(timeseries: list[dict]) -> tuple[datetime, datetime] | None:
+    """
+    Infer sleep start and end from HR pattern in overnight data.
+    Uses the 20th-percentile HR as a baseline; anything within 20% above
+    that is treated as 'sleep range'. Requires ≥3h of inferred sleep.
+    """
+    pts = [p for p in timeseries if p["hr"] is not None]
+    if len(pts) < 12:  # need at least 1 hour of data
+        return None
+
+    hrs = sorted(p["hr"] for p in pts)
+    p20 = hrs[max(0, len(hrs) // 5)]
+    threshold = p20 * 1.20  # 20% above lowest-20th-pct = sleep range ceiling
+
+    # Find first 3-consecutive-bucket window all below threshold → sleep start
+    sleep_start = None
+    for i in range(len(pts) - 2):
+        window = [pts[j]["hr"] for j in range(i, i + 3)]
+        if all(h <= threshold for h in window):
+            sleep_start = pts[i]
+            break
+
+    if sleep_start is None:
+        return None
+
+    # Find last 3-consecutive-bucket window all below threshold → wake end
+    sleep_end = sleep_start
+    for i in range(len(pts) - 3, pts.index(sleep_start), -1):
+        window = [pts[j]["hr"] for j in range(i, i + 3)]
+        if all(h <= threshold for h in window):
+            sleep_end = pts[i + 2]
+            break
+
+    duration_min = sleep_end["min"] - sleep_start["min"]
+    if duration_min < 180:
+        return None
+
+    return sleep_start["time"], sleep_end["time"]
+
+
+async def auto_sleep_analysis(db: AsyncSession, user_phone: str) -> None:
+    """
+    Called at the morning check time. If no sleep session was logged
+    manually for last night, infer sleep window from HR data and run
+    the full analysis automatically.
+    """
+    if await has_recent_sleep_session(db):
+        logger.info("Auto sleep check: session already exists, skipping.")
+        return
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=15)  # look back 15 h (covers any sleep time)
+
+    timeseries = await get_overnight_data(db, window_start, now)
+    if not timeseries:
+        logger.info("Auto sleep check: no overnight data found.")
+        return
+
+    inferred = _infer_sleep_window(timeseries)
+    if inferred is None:
+        logger.info("Auto sleep check: could not infer sleep window from data.")
+        return
+
+    sleep_start, sleep_end = inferred
+    duration_min = int((sleep_end - sleep_start).total_seconds() / 60)
+
+    # Trim timeseries to the inferred window for the LLM
+    sleep_ts = [p for p in timeseries if sleep_start <= p["time"] <= sleep_end]
+
+    stats = await get_sleep_window_stats(db, sleep_start, sleep_end)
+    if not stats:
+        return
+
+    analysis = await analyze_sleep(stats, sleep_start, sleep_end, sleep_ts)
+    score = analysis.get("sleep_score")
+    stage_breakdown = {
+        k: analysis.get(k)
+        for k in ("deep_pct", "deep_min", "rem_pct", "rem_min", "light_pct", "light_min")
+    }
+
+    await db.execute(
+        text(
+            "INSERT INTO sleep_sessions "
+            "(start_time, end_time, duration_min, avg_hrv, avg_hr, min_spo2, "
+            "sleep_score, analysis_text, stage_breakdown) "
+            "VALUES (:start, :end, :dur, :hrv, :hr, :spo2, :score, :text, :stages)"
+        ),
+        {
+            "start": sleep_start,
+            "end": sleep_end,
+            "dur": duration_min,
+            "hrv": stats.get("avg_hrv"),
+            "hr": stats.get("avg_hr"),
+            "spo2": stats.get("min_spo2"),
+            "score": score,
+            "text": json.dumps(analysis),
+            "stages": json.dumps(stage_breakdown),
+        },
+    )
+    await db.commit()
+
+    report = format_sleep_report(analysis, stats, duration_min)
+    h, m = divmod(duration_min, 60)
+    header = f"Good morning! (Auto-detected sleep: {h}h {m}m)\n\n"
+    await send_message(user_phone, header + report)
