@@ -30,6 +30,11 @@ const HRV_CHART_CONFIG = {
   color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
 };
 
+const NIGHTLY_HRV_CHART_CONFIG = {
+  ...CHART_CONFIG,
+  color: (opacity = 1) => `rgba(124, 58, 237, ${opacity})`,
+};
+
 export default function App() {
   const [status, setStatus] = useState("Idle");
   const [connected, setConnected] = useState(false);
@@ -126,6 +131,14 @@ export default function App() {
   const hasHRData = hrData.some((v) => v > 0);
   const hasHRVData = hrvData.some((v) => v > 0);
 
+  // Nightly HRV — reverse so chart runs oldest → newest
+  const nightlyScores = [...sleepScores].reverse();
+  const nightlyHrvData = nightlyScores.map((s) => s.avg_hrv ?? 0);
+  const nightlyLabels = nightlyScores.map((s) =>
+    new Date(s.start_time).toLocaleDateString(undefined, { weekday: "short" })
+  );
+  const hasNightlyHrv = nightlyHrvData.some((v) => v > 0);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>WHOOP Collector</Text>
@@ -177,6 +190,25 @@ export default function App() {
       ) : (
         <View style={[styles.chart, styles.placeholder]}>
           <Text style={styles.placeholderText}>No HRV data yet</Text>
+        </View>
+      )}
+
+      {/* Nightly HRV chart */}
+      <Text style={styles.chartTitle}>Nightly HRV — last 7 nights (ms)</Text>
+      {hasNightlyHrv ? (
+        <LineChart
+          data={{ labels: nightlyLabels, datasets: [{ data: nightlyHrvData }] }}
+          width={CHART_W}
+          height={160}
+          chartConfig={NIGHTLY_HRV_CHART_CONFIG}
+          bezier
+          withDots={true}
+          withInnerLines={false}
+          style={styles.chart}
+        />
+      ) : (
+        <View style={[styles.chart, styles.placeholder]}>
+          <Text style={styles.placeholderText}>No nightly HRV data yet</Text>
         </View>
       )}
 
