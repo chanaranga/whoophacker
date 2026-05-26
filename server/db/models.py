@@ -7,6 +7,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class AgentMemory(Base):
+    __tablename__ = "agent_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    content = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), default=func.now())
+
+
 class WorkoutSession(Base):
     __tablename__ = "workout_sessions"
 

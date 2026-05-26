@@ -202,6 +202,89 @@ async def get_recovery_inputs(db: AsyncSession) -> dict:
     }
 
 
+async def get_pattern_data(db: AsyncSession) -> dict:
+    """Aggregated data for pattern analysis — no raw rows, only summaries."""
+    # Last 14 days of workouts
+    w_rows = await db.execute(
+        text(
+            """
+            SELECT DATE(start_time), workout_type, effort_score, recovery_cost
+            FROM workout_sessions
+            WHERE end_time IS NOT NULL AND start_time > NOW() - INTERVAL '14 days'
+            ORDER BY start_time
+            """
+        )
+    )
+    workouts = [
+        {"date": str(r[0]), "type": r[1], "effort": r[2], "cost": r[3]}
+        for r in w_rows.fetchall()
+    ]
+
+    # Last 7 days of sleep
+    s_rows = await db.execute(
+        text(
+            """
+            SELECT DATE(start_time), sleep_score, duration_min, avg_hrv
+            FROM sleep_sessions
+            WHERE end_time IS NOT NULL AND start_time > NOW() - INTERVAL '7 days'
+            ORDER BY start_time
+            """
+        )
+    )
+    sleeps = [
+        {
+            "date": str(r[0]),
+            "score": r[1],
+            "duration_h": round(r[2] / 60, 1) if r[2] else None,
+            "hrv": r[3],
+        }
+        for r in s_rows.fetchall()
+    ]
+
+    # Days since each workout type
+    last_w = await db.execute(
+        text(
+            """
+            SELECT workout_type, MAX(start_time)
+            FROM workout_sessions WHERE end_time IS NOT NULL
+            GROUP BY workout_type
+            """
+        )
+    )
+    now = datetime.now(timezone.utc)
+    days_since = {
+        r[0]: (now - r[1]).days for r in last_w.fetchall()
+    }
+
+    # Recent memories (last 8)
+    mem_rows = await db.execute(
+        text("SELECT content FROM agent_memories ORDER BY created_at DESC LIMIT 8")
+    )
+    memories = [r[0] for r in mem_rows.fetchall()]
+
+    return {
+        "workouts_last_14d": workouts,
+        "sleep_last_7d": sleeps,
+        "days_since_workout_type": days_since,
+        "recent_memories": memories,
+    }
+
+
+async def save_memory(db: AsyncSession, content: str) -> None:
+    await db.execute(
+        text("INSERT INTO agent_memories (content) VALUES (:c)"),
+        {"c": content},
+    )
+    # Keep only the last 50 memories
+    await db.execute(
+        text(
+            "DELETE FROM agent_memories WHERE id NOT IN "
+            "(SELECT id FROM agent_memories ORDER BY created_at DESC LIMIT 50)"
+        )
+    )
+    await db.commit()
+
+
 async def get_recent_workouts(db: AsyncSession, days: int = 7) -> list[dict]:
     rows = await db.execute(
         text(

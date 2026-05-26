@@ -168,6 +168,11 @@ async def advise_workout(recovery: dict, workout_type: str) -> dict[str, Any]:
     return await _call_llm(WORKOUT_ADVICE_SYSTEM_PROMPT, json.dumps(payload), timeout=60)
 
 
+async def analyze_patterns(pattern_data: dict) -> dict[str, Any]:
+    from agent.prompts import PATTERN_ANALYSIS_PROMPT
+    return await _call_llm(PATTERN_ANALYSIS_PROMPT, json.dumps(pattern_data), timeout=90)
+
+
 async def analyze_snapshot(snap: HealthSnapshot) -> str:
     payload = _format_snapshot_payload(snap)
     async with httpx.AsyncClient(timeout=60) as client:

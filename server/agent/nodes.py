@@ -19,10 +19,12 @@ from db.queries import (
     has_recent_sleep_session,
     get_workout_window_stats,
     get_recovery_inputs,
+    get_pattern_data,
+    save_memory,
 )
 from integrations.ollama_cloud import (
     analyze_sleep, analyze_snapshot, analyze_workout,
-    analyze_recovery, advise_workout,
+    analyze_recovery, advise_workout, analyze_patterns,
 )
 from integrations.signal_client import send_message
 from agent.state import HealthAgentState
@@ -244,6 +246,36 @@ async def workout_advice_node(state: "HealthAgentState") -> "HealthAgentState":
     msg = format_advice_message(advice, workout_type)
     await send_message(state["user_phone"], msg)
     return state
+
+
+async def proactive_suggestion(db: AsyncSession, user_phone: str) -> None:
+    """
+    Runs daily at the configured hour. Analyses 14-day workout/sleep patterns
+    and sends a personalised workout suggestion via Signal. Stores the pattern
+    insight as a memory so future calls build on it rather than repeating it.
+    """
+    pattern_data = await get_pattern_data(db)
+
+    # Skip if there's too little data to say anything meaningful
+    if not pattern_data["workouts_last_14d"] and not pattern_data["sleep_last_7d"]:
+        logger.info("Proactive suggestion: not enough data yet, skipping.")
+        return
+
+    result = await analyze_patterns(pattern_data)
+
+    insight = result.get("pattern_insight", "")
+    message = result.get("message", "")
+
+    if not message:
+        logger.info("Proactive suggestion: LLM returned empty message, skipping.")
+        return
+
+    # Persist the insight so it feeds back into future analyses
+    if insight:
+        await save_memory(db, insight)
+
+    await send_message(user_phone, message)
+    logger.info("Proactive workout suggestion sent.")
 
 
 def _infer_sleep_window(timeseries: list[dict]) -> tuple[datetime, datetime] | None:

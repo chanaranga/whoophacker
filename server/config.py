@@ -19,9 +19,12 @@ class Settings(BaseSettings):
     server_secret: str
 
     # UTC hour (0-23) to run the automatic sleep analysis if the user
-    # didn't log sleep manually. Set to the UTC equivalent of 10am your time.
-    # e.g. UTC+5:30 (IST) → 4, UTC+10 (AEST) → 0, UTC-5 (EST) → 15
-    auto_sleep_check_utc_hour: int = 4
+    # didn't log sleep manually. Amsterdam CEST (UTC+2) 10am = UTC 8.
+    auto_sleep_check_utc_hour: int = 8
+
+    # UTC hour (0-23) to send proactive workout suggestion.
+    # Amsterdam CEST (UTC+2) 5pm = UTC 15.
+    auto_suggestion_utc_hour: int = 15
 
 
 settings = Settings()

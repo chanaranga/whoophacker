@@ -49,24 +49,39 @@ async def _signal_listener():
             await asyncio.sleep(5)
 
 
-async def _auto_sleep_loop():
-    """Wait until the configured UTC hour each day, then run auto sleep analysis."""
-    from agent.nodes import auto_sleep_analysis
+async def _daily_loop(utc_hour: int, task_name: str, coro_factory):
+    """Generic daily loop: waits until utc_hour each day then runs coro_factory()."""
     while True:
         now = datetime.now(timezone.utc)
-        next_run = now.replace(
-            hour=settings.auto_sleep_check_utc_hour, minute=0, second=0, microsecond=0
-        )
+        next_run = now.replace(hour=utc_hour, minute=0, second=0, microsecond=0)
         if next_run <= now:
             next_run += timedelta(days=1)
         wait_sec = (next_run - now).total_seconds()
-        logger.info("Auto sleep check scheduled in %.0f minutes.", wait_sec / 60)
+        logger.info("%s scheduled in %.0f minutes.", task_name, wait_sec / 60)
         await asyncio.sleep(wait_sec)
         try:
             async with AsyncSessionLocal() as db:
-                await auto_sleep_analysis(db, settings.signal_user_number)
+                await coro_factory(db)
         except Exception:
-            logger.exception("Auto sleep analysis failed.")
+            logger.exception("%s failed.", task_name)
+
+
+async def _auto_sleep_loop():
+    from agent.nodes import auto_sleep_analysis
+    await _daily_loop(
+        settings.auto_sleep_check_utc_hour,
+        "Auto sleep check",
+        lambda db: auto_sleep_analysis(db, settings.signal_user_number),
+    )
+
+
+async def _suggestion_loop():
+    from agent.nodes import proactive_suggestion
+    await _daily_loop(
+        settings.auto_suggestion_utc_hour,
+        "Workout suggestion",
+        lambda db: proactive_suggestion(db, settings.signal_user_number),
+    )
 
 
 async def _run_migrations():
@@ -74,6 +89,11 @@ async def _run_migrations():
         await db.execute(
             sa_text("ALTER TABLE sleep_sessions ADD COLUMN IF NOT EXISTS stage_breakdown TEXT")
         )
+        await db.execute(sa_text(
+            "CREATE TABLE IF NOT EXISTS agent_memories "
+            "(id SERIAL PRIMARY KEY, content TEXT NOT NULL, "
+            "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        ))
         await db.execute(sa_text("""
             CREATE TABLE IF NOT EXISTS workout_sessions (
                 id            SERIAL PRIMARY KEY,
@@ -98,9 +118,11 @@ async def lifespan(app: FastAPI):
     await _run_migrations()
     signal_task = asyncio.create_task(_signal_listener())
     sleep_task = asyncio.create_task(_auto_sleep_loop())
+    suggestion_task = asyncio.create_task(_suggestion_loop())
     yield
     signal_task.cancel()
     sleep_task.cancel()
+    suggestion_task.cancel()
 
 
 app = FastAPI(title="WHOOP Health Agent", version="1.0.0", lifespan=lifespan)
