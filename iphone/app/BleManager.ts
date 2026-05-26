@@ -63,13 +63,19 @@ function parseWhoopPacket(data: string): void {
 }
 
 function computeRmssd(intervals: number[]): number | null {
-  if (intervals.length < 2) return null;
+  if (intervals.length < 4) return null;
+  const mean = intervals.reduce((s, v) => s + v, 0) / intervals.length;
+  // Discard ectopic beats / motion artifacts before computing successive differences.
+  // Any R-R deviating >25% from the buffer mean (e.g. a missed beat at 1500ms
+  // followed by a compensatory 300ms) would otherwise spike RMSSD by hundreds of ms.
+  const clean = intervals.filter((v) => Math.abs(v - mean) / mean <= 0.25);
+  if (clean.length < 2) return null;
   let sumSqDiff = 0;
-  for (let i = 1; i < intervals.length; i++) {
-    const diff = intervals[i] - intervals[i - 1];
+  for (let i = 1; i < clean.length; i++) {
+    const diff = clean[i] - clean[i - 1];
     sumSqDiff += diff * diff;
   }
-  return Math.sqrt(sumSqDiff / (intervals.length - 1));
+  return Math.sqrt(sumSqDiff / (clean.length - 1));
 }
 
 export async function connectToWhoop(onReading: (r: HealthReading) => void): Promise<void> {
