@@ -39,8 +39,6 @@ export async function fetchSleepScores(days = 7): Promise<SleepScoreEntry[]> {
 export interface MetricsPayload {
   heart_rate?: number;
   hrv_rmssd?: number;
-  spo2?: number;
-  skin_temp?: number;
   timestamp?: string;
 }
 
@@ -68,8 +66,6 @@ export async function syncReadings(readings: StoredReading[]): Promise<string[]>
       const ok = await postMetrics({
         heart_rate: r.heartRate ?? undefined,
         hrv_rmssd: r.hrv ?? undefined,
-        spo2: r.spo2 ?? undefined,
-        skin_temp: r.skinTemp ?? undefined,
         timestamp: r.timestamp,
       });
       return ok ? r.id : null;

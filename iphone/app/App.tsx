@@ -79,8 +79,6 @@ export default function App() {
           Math.round(avg(buf.map((r) => r.heartRate)) ?? 0),
           null,
           getCurrentRmssd(),
-          avg(buf.map((r) => r.spo2)),
-          avg(buf.map((r) => r.skinTempC)),
           new Date().toISOString()
         );
       }, 30_000);
@@ -139,10 +137,6 @@ export default function App() {
           <View style={styles.row}>
             <Metric label="HR" value={`${lastReading.heartRate ?? "—"}`} unit="bpm" color="#dc2626" />
             <Metric label="HRV" value={getCurrentRmssd()?.toFixed(1) ?? "—"} unit="ms" color="#2563eb" />
-          </View>
-          <View style={styles.row}>
-            <Metric label="SpO₂" value={lastReading.spo2 != null ? `${lastReading.spo2.toFixed(1)}` : "—"} unit="%" color="#059669" />
-            <Metric label="Skin" value={lastReading.skinTempC != null ? `${lastReading.skinTempC.toFixed(1)}` : "—"} unit="°C" color="#d97706" />
           </View>
           <Text style={styles.ts}>{new Date(lastReading.timestamp).toLocaleTimeString()}</Text>
         </View>
