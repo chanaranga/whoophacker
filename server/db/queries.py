@@ -22,7 +22,7 @@ async def get_24h_avg(db: AsyncSession, column: str) -> Optional[float]:
         )
     )
     result = row.fetchone()
-    return round(result[0], 1) if result and result[0] else None
+    return float(round(result[0], 1)) if result and result[0] else None
 
 
 async def get_7d_avg(db: AsyncSession, column: str) -> Optional[float]:
@@ -33,7 +33,7 @@ async def get_7d_avg(db: AsyncSession, column: str) -> Optional[float]:
         )
     )
     result = row.fetchone()
-    return round(result[0], 1) if result and result[0] else None
+    return float(round(result[0], 1)) if result and result[0] else None
 
 
 async def get_sleep_window_stats(
@@ -190,13 +190,13 @@ async def get_recovery_inputs(db: AsyncSession) -> dict:
     workout_load = workout_row.fetchone()
 
     return {
-        "last_sleep_score": last_sleep[0] if last_sleep else None,
-        "last_sleep_hrv": last_sleep[1] if last_sleep else None,
-        "last_sleep_duration_min": last_sleep[2] if last_sleep else None,
-        "hrv_now": hrv_now,
-        "hrv_7d_avg": hrv_7d,
+        "last_sleep_score": int(last_sleep[0]) if last_sleep and last_sleep[0] is not None else None,
+        "last_sleep_hrv": float(last_sleep[1]) if last_sleep and last_sleep[1] is not None else None,
+        "last_sleep_duration_min": int(last_sleep[2]) if last_sleep and last_sleep[2] is not None else None,
+        "hrv_now": float(hrv_now) if hrv_now is not None else None,
+        "hrv_7d_avg": float(hrv_7d) if hrv_7d is not None else None,
         "hr_now": int(hr_now) if hr_now else None,
-        "hr_7d_avg": hr_7d,
+        "hr_7d_avg": float(hr_7d) if hr_7d is not None else None,
         "workout_load_48h": int(workout_load[0]) if workout_load else 0,
         "workouts_48h": int(workout_load[1]) if workout_load else 0,
     }
