@@ -3,6 +3,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import websockets
 from fastapi import FastAPI
@@ -49,15 +50,24 @@ async def _signal_listener():
             await asyncio.sleep(5)
 
 
-async def _daily_loop(utc_hour: int, task_name: str, coro_factory):
-    """Generic daily loop: waits until utc_hour each day then runs coro_factory()."""
+async def _daily_loop(local_hour: int, task_name: str, coro_factory):
+    """Wait until local_hour in the user's timezone each day, then run coro_factory()."""
+    from db.queries import get_setting
     while True:
-        now = datetime.now(timezone.utc)
-        next_run = now.replace(hour=utc_hour, minute=0, second=0, microsecond=0)
-        if next_run <= now:
+        async with AsyncSessionLocal() as db:
+            tz_name = await get_setting(db, "timezone", settings.default_timezone)
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo(settings.default_timezone)
+
+        now_local = datetime.now(tz)
+        next_run = now_local.replace(hour=local_hour, minute=0, second=0, microsecond=0)
+        if next_run <= now_local:
             next_run += timedelta(days=1)
-        wait_sec = (next_run - now).total_seconds()
-        logger.info("%s scheduled in %.0f minutes.", task_name, wait_sec / 60)
+
+        wait_sec = (next_run - now_local).total_seconds()
+        logger.info("%s scheduled in %.0f min (tz: %s).", task_name, wait_sec / 60, tz_name)
         await asyncio.sleep(wait_sec)
         try:
             async with AsyncSessionLocal() as db:
@@ -69,7 +79,7 @@ async def _daily_loop(utc_hour: int, task_name: str, coro_factory):
 async def _auto_sleep_loop():
     from agent.nodes import auto_sleep_analysis
     await _daily_loop(
-        settings.auto_sleep_check_utc_hour,
+        settings.auto_sleep_check_local_hour,
         "Auto sleep check",
         lambda db: auto_sleep_analysis(db, settings.signal_user_number),
     )
@@ -78,7 +88,7 @@ async def _auto_sleep_loop():
 async def _suggestion_loop():
     from agent.nodes import proactive_suggestion
     await _daily_loop(
-        settings.auto_suggestion_utc_hour,
+        settings.auto_suggestion_local_hour,
         "Workout suggestion",
         lambda db: proactive_suggestion(db, settings.signal_user_number),
     )
@@ -93,6 +103,11 @@ async def _run_migrations():
             "CREATE TABLE IF NOT EXISTS agent_memories "
             "(id SERIAL PRIMARY KEY, content TEXT NOT NULL, "
             "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        ))
+        await db.execute(sa_text(
+            "CREATE TABLE IF NOT EXISTS user_settings "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL, "
+            "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
         ))
         await db.execute(sa_text("""
             CREATE TABLE IF NOT EXISTS workout_sessions (

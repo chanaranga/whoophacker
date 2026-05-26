@@ -202,6 +202,25 @@ async def get_recovery_inputs(db: AsyncSession) -> dict:
     }
 
 
+async def get_setting(db: AsyncSession, key: str, default: str | None = None) -> str | None:
+    row = await db.execute(
+        text("SELECT value FROM user_settings WHERE key = :k"), {"k": key}
+    )
+    result = row.fetchone()
+    return result[0] if result else default
+
+
+async def set_setting(db: AsyncSession, key: str, value: str) -> None:
+    await db.execute(
+        text(
+            "INSERT INTO user_settings (key, value) VALUES (:k, :v) "
+            "ON CONFLICT (key) DO UPDATE SET value = :v, updated_at = NOW()"
+        ),
+        {"k": key, "v": value},
+    )
+    await db.commit()
+
+
 async def get_pattern_data(db: AsyncSession) -> dict:
     """Aggregated data for pattern analysis — no raw rows, only summaries."""
     # Last 14 days of workouts

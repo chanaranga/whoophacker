@@ -18,13 +18,14 @@ class Settings(BaseSettings):
 
     server_secret: str
 
-    # UTC hour (0-23) to run the automatic sleep analysis if the user
-    # didn't log sleep manually. Amsterdam CEST (UTC+2) 10am = UTC 8.
-    auto_sleep_check_utc_hour: int = 8
+    # Local hour (0-23) to run automatic sleep analysis (default 10am).
+    auto_sleep_check_local_hour: int = 10
 
-    # UTC hour (0-23) to send proactive workout suggestion.
-    # Amsterdam CEST (UTC+2) 5pm = UTC 15.
-    auto_suggestion_utc_hour: int = 15
+    # Local hour (0-23) to send proactive workout suggestion (default 5pm).
+    auto_suggestion_local_hour: int = 17
+
+    # Fallback timezone if none has been received from the app yet.
+    default_timezone: str = "Europe/Amsterdam"
 
 
 settings = Settings()

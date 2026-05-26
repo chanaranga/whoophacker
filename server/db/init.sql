@@ -11,6 +11,12 @@ CREATE TABLE IF NOT EXISTS health_metrics (
 
 SELECT create_hypertable('health_metrics', 'time', if_not_exists => TRUE);
 
+CREATE TABLE IF NOT EXISTS user_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS agent_memories (
     id         SERIAL PRIMARY KEY,
     content    TEXT NOT NULL,

@@ -9,6 +9,7 @@ from config import settings
 from db.session import get_db
 from db.models import HealthMetric
 from db.schemas import MetricsPayload
+from db.queries import set_setting
 
 router = APIRouter(prefix="/api", tags=["metrics"])
 
@@ -19,7 +20,11 @@ def verify_secret(x_server_secret: Annotated[str | None, Header()] = None):
 
 
 @router.post("/metrics", status_code=201, dependencies=[Depends(verify_secret)])
-async def ingest_metrics(payload: MetricsPayload, db: AsyncSession = Depends(get_db)):
+async def ingest_metrics(
+    payload: MetricsPayload,
+    db: AsyncSession = Depends(get_db),
+    x_timezone: Annotated[str | None, Header()] = None,
+):
     row = {
         "time": payload.timestamp or datetime.now(timezone.utc),
         "heart_rate": payload.heart_rate,
@@ -29,7 +34,10 @@ async def ingest_metrics(payload: MetricsPayload, db: AsyncSession = Depends(get
         "resp_rate": payload.resp_rate,
     }
     await db.execute(insert(HealthMetric).values(**row))
-    await db.commit()
+    if x_timezone:
+        await set_setting(db, "timezone", x_timezone)
+    else:
+        await db.commit()
     return {"status": "ok"}
 
 

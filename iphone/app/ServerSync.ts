@@ -88,9 +88,14 @@ export interface MetricsPayload {
 
 export async function postMetrics(payload: MetricsPayload): Promise<boolean> {
   try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const res = await fetch(`${SERVER_URL}/api/metrics`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Server-Secret": SERVER_SECRET },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Server-Secret": SERVER_SECRET,
+        "X-Timezone": tz,
+      },
       body: JSON.stringify(payload),
     });
     return res.ok;
